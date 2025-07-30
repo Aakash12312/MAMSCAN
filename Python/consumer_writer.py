@@ -1,9 +1,7 @@
-# consumer_writer.py
 from kafka import KafkaConsumer
 import mysql.connector
 import json
 
-# 🔌 Connect to Kafka
 consumer = KafkaConsumer(
     'network_metrics',
     bootstrap_servers='localhost:9092',
@@ -11,16 +9,14 @@ consumer = KafkaConsumer(
     value_deserializer=lambda m: json.loads(m.decode('utf-8'))
 )
 
-# 🔌 Connect to MySQL
 db = mysql.connector.connect(
     host="localhost",
     user="root",
-    password="Aakash10",  # change if needed
+    password="Aakash10",
     database="monitoring"
 )
 cursor = db.cursor()
 
-# ✅ Create table (if not exists)
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS metrics (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -34,7 +30,6 @@ CREATE TABLE IF NOT EXISTS metrics (
 
 print("📥 Waiting for messages from Kafka...")
 
-# 🔁 Listen for Kafka messages
 for msg in consumer:
     data = msg.value
     try:
@@ -45,11 +40,10 @@ for msg in consumer:
             data['host'],
             data['cpu_percent'],
             data['memory_percent'],
-            json.dumps(data['net_connections']),  # serialize list to string
+            json.dumps(data['net_connections']),
             data['timestamp']
         ))
         db.commit()
-        print("✅ Data written to DB:")
-        print(json.dumps(data, indent=2))
+        print("✅ Data written to DB")
     except Exception as e:
         print("❌ Error writing to DB:", e)

@@ -1,45 +1,56 @@
 import psutil
 import datetime
+import subprocess
 import json
 import time
 import socket
+import os
 from kafka import KafkaProducer
 
-def protocol_name(proto_type):
-    return {
-        socket.SOCK_STREAM: "TCP",
-        socket.SOCK_DGRAM: "UDP"
-    }.get(proto_type, "OTHER")
-
+# 🧠 Get netstat info with process names (Windows only)
 def get_netstat_connections():
-    data = []
-    for conn in psutil.net_connections(kind='inet'):
-        try:
-            laddr = f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else ""
-            raddr = f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else ""
-            pid = conn.pid
-            proc_name = psutil.Process(pid).name() if pid else "Unknown"
-            data.append({
-                "protocol": protocol_name(conn.type),
-                "local_address": laddr,
-                "foreign_address": raddr,
-                "state": conn.status,
-                "pid": pid,
-                "process": proc_name
-            })
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-    return data
+    try:
+        result = subprocess.check_output(['netstat', '-ano'], stderr=subprocess.STDOUT).decode(errors='ignore')
+        lines = result.splitlines()
+        pid_map = {}
+        for p in psutil.process_iter(['pid', 'name']):
+            pid_map[str(p.info['pid'])] = p.info['name']
 
+        connections = []
+        for line in lines:
+            if line.strip().startswith("TCP") or line.strip().startswith("UDP"):
+                parts = line.split()
+                if len(parts) >= 5:
+                    protocol, local, foreign, state, pid = parts[0], parts[1], parts[2], parts[3], parts[4]
+                elif len(parts) == 4:  # For UDP
+                    protocol, local, foreign, pid = parts[0], parts[1], parts[2], parts[3]
+                    state = ""
+                else:
+                    continue
+
+                connections.append({
+                    "protocol": protocol,
+                    "local_address": local,
+                    "foreign_address": foreign,
+                    "state": state,
+                    "pid": pid,
+                    "process": pid_map.get(pid, "Unknown")
+                })
+        return connections
+    except Exception as e:
+        return [{"error": str(e)}]
+
+# 🧠 Collect system metrics
 def collect_metrics():
     return {
         'host': socket.gethostname(),
-        'timestamp': datetime.datetime.now().isoformat(),  
+        'timestamp': datetime.datetime.now().isoformat(),
         'cpu_percent': psutil.cpu_percent(),
         'memory_percent': psutil.virtual_memory().percent,
         'net_connections': get_netstat_connections()
     }
 
+# 🚀 Kafka Producer
 producer = KafkaProducer(
     bootstrap_servers='localhost:9092',
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
